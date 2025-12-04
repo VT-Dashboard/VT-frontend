@@ -1,0 +1,7 @@
+/* --- Add these three lines to your main CSS file --- */
+@import "tailwindcss";
+
+/* You can add custom styles below if needed */
+body {
+  font-family: 'Inter', sans-serif; /* Recommended modern font */
+}
