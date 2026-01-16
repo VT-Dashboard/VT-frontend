@@ -9,6 +9,7 @@ const Sidebar = ({ isSidebarOpen, toggleSidebar }) => {
     { to: "/", icon: "📊", label: "Dashboard" },
     { to: "/pos", icon: "🛒", label: "Point of Sale" },
     { to: "/inventory", icon: "📦", label: "Inventory" },
+    { to: "/suppliers", icon: "🏷️", label: "Suppliers" },
     { to: "/reports", icon: "📈", label: "Reports" },
     { to: "/settings", icon: "⚙️", label: "Settings" },
   ];
