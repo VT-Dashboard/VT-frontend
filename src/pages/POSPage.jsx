@@ -1,4 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
+import qz from 'qz-tray';
+import html2canvas from 'html2canvas';
+import Receipt from '../components/Receipt';
+import { setupQZSecurity } from '../utils/qzSecurity';
+
+const RECEIPT_PRINTER_KEY = 'receiptPrinterName';
+const RECEIPT_CANVAS_SCALE = 2;
+const RECEIPT_MAX_PAGE_HEIGHT_MM = 200;
 
 const POSPage = () => {
   // products list will be loaded from API on mount
@@ -10,7 +18,16 @@ const POSPage = () => {
   const [barcodeInput, setBarcodeInput] = useState('');
   const [message, setMessage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [receiptData, setReceiptData] = useState(null);
   const barcodeRef = useRef(null);
+  const receiptRef = useRef(null);
+  const [qzConnected, setQzConnected] = useState(false);
+  const [qzError, setQzError] = useState('');
+  const [printers, setPrinters] = useState([]);
+  const [loadingPrinters, setLoadingPrinters] = useState(false);
+  const [selectedPrinter, setSelectedPrinter] = useState(
+    () => localStorage.getItem(RECEIPT_PRINTER_KEY) || ''
+  );
 
   // states for adding custom (manual) items not present in product catalog
   const [customName, setCustomName] = useState('Item');
@@ -73,6 +90,131 @@ const POSPage = () => {
     loadProducts();
     return () => { mounted = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mmToIn = (mm) => mm / 25.4;
+
+  const buildReceiptConfig = (printerName, widthMm, heightMm) => {
+    return qz.configs.create(printerName, {
+      copies: 1,
+      orientation: 'portrait',
+      units: 'in',
+      size: { width: mmToIn(widthMm), height: mmToIn(heightMm) },
+      margins: { top: 0, right: 0, bottom: 0, left: 0 },
+      rasterize: true,
+    });
+  };
+
+  const ensureReceiptPrinter = async () => {
+    await setupQZSecurity();
+    if (!qz.websocket.isActive()) await qz.websocket.connect();
+
+    let printerName = selectedPrinter || localStorage.getItem(RECEIPT_PRINTER_KEY);
+    if (printerName) return printerName;
+
+    const list = await qz.printers.find();
+    const arr = Array.isArray(list) ? list : [list];
+    if (!arr.length) throw new Error('No printers found in QZ Tray');
+    printerName = arr[0];
+    localStorage.setItem(RECEIPT_PRINTER_KEY, printerName);
+    setSelectedPrinter(printerName);
+    return printerName;
+  };
+
+  const printReceiptSilent = async () => {
+    const el = receiptRef.current;
+    if (!el) throw new Error('Receipt element is not ready');
+    const printerName = await ensureReceiptPrinter();
+    const canvas = await html2canvas(el, {
+      backgroundColor: '#ffffff',
+      scale: RECEIPT_CANVAS_SCALE,
+      useCORS: true,
+      onclone: (doc) => {
+        doc.querySelectorAll('link[rel="stylesheet"], style').forEach((node) => node.remove());
+        const cloned = doc.getElementById('receipt-print');
+        if (cloned) {
+          cloned.style.color = '#111';
+          cloned.style.background = '#fff';
+          cloned.style.fontFamily = 'monospace';
+        }
+      },
+    });
+    const pxToMm = (px) => (px * 25.4) / (96 * RECEIPT_CANVAS_SCALE);
+    const widthMm = Math.max(60, Math.ceil(pxToMm(canvas.width)));
+    const heightMm = Math.max(40, Math.ceil(pxToMm(canvas.height)));
+
+    const maxSlicePx = Math.floor((RECEIPT_MAX_PAGE_HEIGHT_MM * (96 * RECEIPT_CANVAS_SCALE)) / 25.4);
+    if (heightMm <= RECEIPT_MAX_PAGE_HEIGHT_MM || maxSlicePx <= 0) {
+      const cfg = buildReceiptConfig(printerName, widthMm, heightMm);
+      const base64 = canvas.toDataURL('image/png').split(',')[1];
+      await qz.print(cfg, [{ type: 'image', format: 'base64', data: base64 }]);
+      return;
+    }
+
+    for (let y = 0; y < canvas.height; y += maxSlicePx) {
+      const sliceHeightPx = Math.min(maxSlicePx, canvas.height - y);
+      const sliceCanvas = document.createElement('canvas');
+      sliceCanvas.width = canvas.width;
+      sliceCanvas.height = sliceHeightPx;
+      const ctx = sliceCanvas.getContext('2d');
+      ctx.drawImage(canvas, 0, -y);
+
+      const sliceHeightMm = Math.ceil(pxToMm(sliceHeightPx));
+      const cfg = buildReceiptConfig(printerName, widthMm, sliceHeightMm);
+      const base64 = sliceCanvas.toDataURL('image/png').split(',')[1];
+      await qz.print(cfg, [{ type: 'image', format: 'base64', data: base64 }]);
+    }
+  };
+
+  const syncQzState = () => {
+    try {
+      const active = !!(qz?.websocket?.isActive?.() || false);
+      setQzConnected(active);
+    } catch {
+      setQzConnected(false);
+    }
+  };
+
+  const connectQz = async () => {
+    setQzError('');
+    try {
+      await setupQZSecurity();
+      if (!qz.websocket.isActive()) await qz.websocket.connect();
+      setQzConnected(true);
+      await refreshPrinters(true);
+    } catch (err) {
+      setQzConnected(false);
+      setQzError(err?.message ? err.message : String(err));
+    }
+  };
+
+  const disconnectQz = async () => {
+    setQzError('');
+    try {
+      if (qz.websocket.isActive()) await qz.websocket.disconnect();
+      setQzConnected(false);
+    } catch (err) {
+      setQzError(err?.message ? err.message : String(err));
+    }
+  };
+
+  const refreshPrinters = async (autoPick = false) => {
+    setLoadingPrinters(true);
+    setQzError('');
+    try {
+      if (!qz.websocket.isActive()) throw new Error('QZ Tray is not connected');
+      const list = await qz.printers.find();
+      const arr = Array.isArray(list) ? list : [list];
+      setPrinters(arr);
+      if (autoPick && !selectedPrinter && arr.length) {
+        setSelectedPrinter(arr[0]);
+        localStorage.setItem(RECEIPT_PRINTER_KEY, arr[0]);
+      }
+    } catch (err) {
+      setQzError(err?.message ? err.message : String(err));
+    } finally {
+      setLoadingPrinters(false);
+    }
+  };
 
   // Helper: attempt to parse response as JSON but safely handle HTML/text
   async function tryParseJSONResponse(resp) {
@@ -224,6 +366,7 @@ const POSPage = () => {
 
   function handleCheckout() {
     setShowCheckout(true);
+    syncQzState();
   }
 
   // Try to decrement stock for catalog items by calling product adjust endpoints.
@@ -304,6 +447,27 @@ const POSPage = () => {
       }
 
       const data = await resp.json();
+      const receiptItems = cart.map(it => ({
+        name: it.name || it.productName || 'Item',
+        qty: it.qty || it.quantity || 1,
+        price: Number(it.price || it.unitPrice || 0),
+      }));
+      setReceiptData({
+        items: receiptItems,
+        subtotal,
+        total,
+        orderNumber: data.orderNumber || data.id || '',
+        paidAt: new Date(),
+      });
+      await new Promise(requestAnimationFrame);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      try {
+        await printReceiptSilent();
+        setReceiptData(null);
+      } catch (printErr) {
+        setMessage({ type: 'error', text: `Print failed: ${printErr.message}` });
+        setQzError(printErr.message || String(printErr));
+      }
       // attempt to decrement stock for catalog items (best-effort)
       try {
         await adjustStockForItems(items);
@@ -366,26 +530,27 @@ const POSPage = () => {
               <div className="text-sm text-gray-600">Products list hidden for POS. Use scanning or add manual items below.</div>
             </div>
 
-            <div className="p-4 border rounded bg-white">
-              <h3 className="text-sm font-medium mb-2">Add manual item (not in system)</h3>
-              <div className="grid grid-cols-3 gap-2 items-end">
+            <div className="p-4 border rounded bg-white shadow-sm">
+              <h3 className="text-lg font-semibold mb-2">Add manual item</h3>
+              <p className="text-sm text-gray-500 mb-3">Quickly add an item that isn't in the product catalog. It will be added to this sale only.</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
                 <div>
-                  <label className="text-xs text-gray-600">Name</label>
-                  <input value={customName} onChange={e => setCustomName(e.target.value)} className="mt-1 w-full border rounded px-2 py-1 text-sm" placeholder="e.g. Cut piece" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-600">Price (Rs)</label>
-                  <input value={customPrice} onChange={e => setCustomPrice(e.target.value)} type="number" step="0.01" min="0" className="mt-1 w-full border rounded px-2 py-1 text-sm" />
+                  <label className="text-sm text-gray-700">Name</label>
+                  <input value={customName} onChange={e => setCustomName(e.target.value)} className="mt-1 w-full border rounded px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-indigo-200" placeholder="e.g. Cut piece" />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-600">Qty</label>
-                  <input value={customQty} onChange={e => setCustomQty(Math.max(1, parseInt(e.target.value || '1', 10)))} type="number" min="1" className="mt-1 w-full border rounded px-2 py-1 text-sm" />
+                  <label className="text-sm text-gray-700">Price (Rs)</label>
+                  <input value={customPrice} onChange={e => setCustomPrice(e.target.value)} type="number" step="0.01" min="0" className="mt-1 w-full border rounded px-3 py-2 text-base focus:outline:none focus:ring-2 focus:ring-indigo-200" />
                 </div>
-                <div className="col-span-2">
-                  <label className="text-xs text-gray-600">SKU / Note (optional)</label>
-                  <input value={customSku} onChange={e => setCustomSku(e.target.value)} className="mt-1 w-full border rounded px-2 py-1 text-sm" placeholder="optional" />
+                <div>
+                  <label className="text-sm text-gray-700">Qty</label>
+                  <input value={customQty} onChange={e => setCustomQty(Math.max(1, parseInt(e.target.value || '1', 10)))} type="number" min="1" className="mt-1 w-full border rounded px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-indigo-200" />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="col-span-1 md:col-span-2">
+                  <label className="text-sm text-gray-700">SKU / Note (optional)</label>
+                  <input value={customSku} onChange={e => setCustomSku(e.target.value)} className="mt-1 w-full border rounded px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-indigo-200" placeholder="Optional — SKU or short note" />
+                </div>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 md:col-span-1">
                   <button onClick={() => {
                     const priceNum = parseFloat(customPrice || '0');
                     if (!customName.trim()) {
@@ -396,8 +561,8 @@ const POSPage = () => {
                     const id = `manual-${Date.now()}-${Math.floor(Math.random()*1000)}`;
                     addToCart({ id, name: customName.trim(), price: isNaN(priceNum) ? 0 : priceNum, sku: customSku || '', image: null }, Number(customQty || 1));
                     setCustomName('Item'); setCustomPrice('0.00'); setCustomQty(1); setCustomSku('');
-                  }} className="px-3 py-1 bg-green-600 text-white rounded text-sm">Add Item</button>
-                  <button onClick={() => { setCustomName('Item'); setCustomPrice('0.00'); setCustomQty(1); setCustomSku(''); }} className="px-3 py-1 bg-gray-100 rounded text-sm">Clear</button>
+                  }} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md text-base shadow hover:bg-green-700">+ Add Item</button>
+                  <button onClick={() => { setCustomName('Item'); setCustomPrice('0.00'); setCustomQty(1); setCustomSku(''); }} className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-md text-base hover:shadow-sm">Clear</button>
                 </div>
               </div>
             </div>
@@ -462,20 +627,7 @@ const POSPage = () => {
         </aside>
       </div>
 
-      <footer className="mt-4">
-        <div className="bg-white rounded shadow p-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="text-sm text-gray-600">Keypad:</div>
-            <div className="grid grid-cols-5 gap-2">
-              {['1','2','3','4','5','6','7','8','9','0','C','←'].map(k => (
-                <button key={k} onClick={() => handleKeypadPress(k)} className="px-3 py-2 bg-gray-100 rounded">{k}</button>
-              ))}
-            </div>
-            <div className="ml-4 text-sm">Value: <span className="font-medium">{keypadValue || '1'}</span></div>
-          </div>
-          <div className="text-sm text-gray-500">Tip: use "Qty" on a product to apply the keypad value</div>
-        </div>
-      </footer>
+      {/* Keypad UI removed — kept keypad logic and state intact for future use */}
 
       {showCheckout && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
@@ -485,11 +637,61 @@ const POSPage = () => {
               <div className="flex justify-between"><span>Subtotal</span><span>Rs {subtotal.toFixed(2)}</span></div>
               <div className="flex justify-between font-semibold mt-2"><span>Total</span><span>Rs {total.toFixed(2)}</span></div>
             </div>
+            <div className="mb-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className={`text-xs font-medium ${qzConnected ? 'text-green-700' : 'text-red-700'}`}>
+                  {qzConnected ? 'QZ Tray connected' : 'QZ Tray disconnected'}
+                </div>
+                <div className="flex items-center gap-2">
+                  {!qzConnected ? (
+                    <button onClick={connectQz} className="px-2 py-1 text-xs bg-indigo-600 text-white rounded">Connect</button>
+                  ) : (
+                    <button onClick={disconnectQz} className="px-2 py-1 text-xs bg-gray-100 rounded">Disconnect</button>
+                  )}
+                  <button onClick={() => refreshPrinters(false)} disabled={!qzConnected || loadingPrinters} className="px-2 py-1 text-xs bg-gray-100 rounded disabled:opacity-50">
+                    {loadingPrinters ? 'Loading...' : 'Refresh'}
+                  </button>
+                </div>
+              </div>
+              <select
+                value={selectedPrinter}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSelectedPrinter(value);
+                  if (value) localStorage.setItem(RECEIPT_PRINTER_KEY, value);
+                }}
+                disabled={!qzConnected}
+                className="w-full border rounded px-2 py-1 text-sm"
+              >
+                <option value="">Select printer...</option>
+                {printers.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              {qzError && <div className="text-xs text-red-600">QZ: {qzError}</div>}
+            </div>
             <div className="flex gap-2">
               <button onClick={confirmPayment} disabled={isSubmitting} className="flex-1 py-2 bg-green-600 text-white rounded disabled:opacity-50">{isSubmitting ? 'Processing...' : 'Confirm Payment'}</button>
               <button onClick={() => setShowCheckout(false)} disabled={isSubmitting} className="flex-1 py-2 bg-gray-100 rounded disabled:opacity-50">Cancel</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {receiptData && (
+        <div
+          id="receipt-print"
+          ref={receiptRef}
+          style={{ position: 'fixed', left: '-10000px', top: 0, width: '80mm', padding: '8px', background: '#fff' }}
+          aria-hidden="true"
+        >
+          <Receipt
+            items={receiptData.items}
+            subtotal={receiptData.subtotal}
+            total={receiptData.total}
+            orderNumber={receiptData.orderNumber}
+            paidAt={receiptData.paidAt}
+          />
         </div>
       )}
     </div>

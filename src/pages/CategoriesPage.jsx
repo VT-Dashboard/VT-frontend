@@ -11,6 +11,8 @@ export default function CategoriesPage() {
   const [showModal, setShowModal] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   const envBase = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
   const envUrl = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
@@ -133,99 +135,204 @@ export default function CategoriesPage() {
     }
   };
 
+  const filtered = categories.filter((c) => {
+    const name = (c.name || '').toLowerCase();
+    const description = (c.description || '').toLowerCase();
+    const matchesQuery = !query || name.includes(query.toLowerCase()) || description.includes(query.toLowerCase());
+    const active = (c.isActive || c.is_active) ? 'active' : 'inactive';
+    const matchesStatus = statusFilter === 'all' || statusFilter === active;
+    return matchesQuery && matchesStatus;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const start = (currentPage - 1) * pageSize;
+  const paginated = filtered.slice(start, start + pageSize);
+
   return (
-    <div className="p-8 bg-gray-50 min-h-screen">
-      <h2 className="text-3xl font-bold text-gray-800 mb-6">Categories</h2>
-
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h3 className="text-xl font-semibold">Manage Categories</h3>
-          <p className="text-sm text-gray-600">Create and update product categories.</p>
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-slate-50 to-emerald-50/60">
+      <div className="px-6 py-8 lg:px-10">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-emerald-600">POS Control</div>
+            <h2 className="mt-2 text-3xl font-semibold text-slate-900">Categories</h2>
+            <p className="mt-1 text-sm text-slate-500">Keep the catalog clean, searchable, and fast for checkout.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={openCreateModal} className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-700">
+              + Create Category
+            </button>
+          </div>
         </div>
-        <div>
-          <button onClick={openCreateModal} className="bg-green-600 text-white px-4 py-2 rounded shadow">Create Category</button>
-        </div>
-      </div>
 
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded shadow-lg w-full max-w-2xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-lg font-semibold">{editingId ? 'Edit Category' : 'Create Category'}</h4>
-              <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+        <div className="mb-6 grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm backdrop-blur">
+            <div className="text-xs uppercase tracking-wide text-slate-400">Total Categories</div>
+            <div className="mt-2 text-2xl font-semibold text-slate-900">{categories.length}</div>
+          </div>
+          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm backdrop-blur">
+            <div className="text-xs uppercase tracking-wide text-slate-400">Active</div>
+            <div className="mt-2 text-2xl font-semibold text-emerald-600">
+              {categories.filter((c) => c.isActive || c.is_active).length}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <input name="name" value={form.name} onChange={handleChange} placeholder="Name" className="border p-2 rounded" />
-              <label className="flex items-center gap-2">
-                <input type="checkbox" name="isActive" checked={!!form.isActive} onChange={handleChange} /> Active
-              </label>
-              <textarea name="description" value={form.description} onChange={handleChange} placeholder="Description" className="border p-2 rounded col-span-2" />
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => { setForm(empty); setEditingId(null); setShowModal(false); }} className="bg-gray-200 px-4 py-2 rounded">Cancel</button>
-              <button onClick={saveCategory} disabled={isSaving} className="bg-green-600 text-white px-4 py-2 rounded">{isSaving ? 'Saving...' : (editingId ? 'Update' : 'Create')}</button>
+          </div>
+          <div className="rounded-2xl border border-white/60 bg-white/80 p-4 shadow-sm backdrop-blur">
+            <div className="text-xs uppercase tracking-wide text-slate-400">Inactive</div>
+            <div className="mt-2 text-2xl font-semibold text-amber-600">
+              {categories.filter((c) => !(c.isActive || c.is_active)).length}
             </div>
           </div>
         </div>
-      )}
 
-      <div className="bg-white rounded shadow p-4">
-        <h3 className="font-semibold mb-3">Category List</h3>
-        {loading ? <p>Loading...</p> : (
-          <div>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="bg-green-100 text-left">
-                    <th className="p-2 border">Name</th>
-                    <th className="p-2 border">Description</th>
-                    <th className="p-2 border">Status</th>
-                    <th className="p-2 border text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(() => {
-                    const total = categories.length;
-                    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-                    const currentPage = Math.min(Math.max(1, page), totalPages);
-                    const start = (currentPage - 1) * pageSize;
-                    const paginated = categories.slice(start, start + pageSize);
-                    return paginated.map((c) => (
-                      <tr key={c.id} className="hover:bg-gray-50">
-                        <td className="p-2 border">{c.name}</td>
-                        <td className="p-2 border">{c.description}</td>
-                        <td className="p-2 border">{(c.isActive || c.is_active) ? 'Active' : 'Inactive'}</td>
-                        <td className="p-2 border text-center">
-                          <button onClick={() => openEditModal(c)} className="bg-blue-500 text-white px-2 py-1 rounded mr-2">Edit</button>
-                          <button onClick={() => deleteCategory(c.id)} className="bg-red-500 text-white px-2 py-1 rounded">Delete</button>
-                        </td>
-                      </tr>
-                    ));
-                  })()}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between">
-              <div className="flex items-center gap-3 text-sm text-gray-600">
-                <span>Total: {categories.length}</span>
-                <label className="flex items-center gap-2">Per page:
-                  <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} className="border rounded px-2 py-1 ml-2">
-                    <option value={5}>5</option>
-                    <option value={10}>10</option>
-                    <option value={25}>25</option>
-                  </select>
-                </label>
+        {showModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm">
+            <div className="w-full max-w-2xl rounded-2xl border border-white/40 bg-white/90 p-6 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-lg font-semibold text-slate-900">{editingId ? 'Edit Category' : 'Create Category'}</h4>
+                  <p className="text-sm text-slate-500">Set details that appear at checkout and on receipts.</p>
+                </div>
+                <button onClick={() => setShowModal(false)} className="rounded-full border border-slate-200 px-3 py-1 text-sm text-slate-500 hover:text-slate-700">X</button>
               </div>
-
-              <div className="flex items-center gap-2">
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-3 py-1 bg-gray-100 rounded">Prev</button>
-                <div className="text-sm">Page {Math.min(Math.max(1, page), Math.max(1, Math.ceil(categories.length / pageSize)))} of {Math.max(1, Math.ceil(categories.length / pageSize))}</div>
-                <button onClick={() => setPage((p) => Math.min(Math.max(1, p + 1), Math.max(1, Math.ceil(categories.length / pageSize))))} className="px-3 py-1 bg-gray-100 rounded">Next</button>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Category Name</label>
+                  <input
+                    name="name"
+                    value={form.name}
+                    onChange={handleChange}
+                    placeholder="e.g. Beverages"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-emerald-200 focus:border-emerald-400 focus:ring-4"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</label>
+                  <div className="flex h-[46px] items-center justify-between rounded-xl border border-slate-200 bg-white px-4">
+                    <span className="text-sm text-slate-600">Active on POS</span>
+                    <input type="checkbox" name="isActive" checked={!!form.isActive} onChange={handleChange} className="h-4 w-4 accent-emerald-600" />
+                  </div>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Description</label>
+                  <textarea
+                    name="description"
+                    value={form.description}
+                    onChange={handleChange}
+                    placeholder="Short customer-facing description"
+                    className="min-h-[110px] w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none ring-emerald-200 focus:border-emerald-400 focus:ring-4"
+                  />
+                </div>
+              </div>
+              <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
+                <button onClick={() => { setForm(empty); setEditingId(null); setShowModal(false); }} className="rounded-full border border-slate-200 px-5 py-2 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+                <button onClick={saveCategory} disabled={isSaving} className="rounded-full bg-emerald-600 px-6 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-200 hover:bg-emerald-700">
+                  {isSaving ? 'Saving...' : (editingId ? 'Update Category' : 'Create Category')}
+                </button>
               </div>
             </div>
           </div>
         )}
+
+        <div className="rounded-2xl border border-white/50 bg-white/90 p-5 shadow-xl shadow-emerald-100/50 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Category List</h3>
+              <p className="text-sm text-slate-500">Search quickly and edit without slowing the line.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500 shadow-sm">
+                <span className="text-slate-400">Search</span>
+                <input
+                  value={query}
+                  onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+                  placeholder="Name or description"
+                  className="w-48 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-600 shadow-sm"
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="mt-6 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+              Loading categories...
+            </div>
+          ) : (
+            <div className="mt-6">
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="min-w-full border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-4 py-3">Name</th>
+                      <th className="px-4 py-3">Description</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginated.map((c) => {
+                      const active = (c.isActive || c.is_active);
+                      return (
+                        <tr key={c.id} className="border-t border-slate-100 text-sm text-slate-700 hover:bg-emerald-50/40">
+                          <td className="px-4 py-3 font-medium text-slate-900">{c.name}</td>
+                          <td className="px-4 py-3 text-slate-500">{c.description || '-'}</td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${active ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {active ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button onClick={() => openEditModal(c)} className="rounded-full border border-slate-200 px-4 py-1 text-xs font-semibold text-slate-600 hover:border-emerald-300 hover:text-emerald-700">
+                              Edit
+                            </button>
+                            <button onClick={() => deleteCategory(c.id)} className="ml-2 rounded-full border border-rose-200 px-4 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50">
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {!paginated.length && (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-10 text-center text-sm text-slate-500">
+                          No categories found. Try adjusting filters or create a new category.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3 text-sm text-slate-500">
+                  <span>Showing {paginated.length} of {filtered.length}</span>
+                  <label className="flex items-center gap-2">
+                    Per page:
+                    <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm">
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={25}>25</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded-full border border-slate-200 px-4 py-1 text-sm text-slate-600 hover:bg-slate-50">Prev</button>
+                  <div className="text-sm text-slate-500">Page {currentPage} of {totalPages}</div>
+                  <button onClick={() => setPage((p) => Math.min(Math.max(1, p + 1), totalPages))} className="rounded-full border border-slate-200 px-4 py-1 text-sm text-slate-600 hover:bg-slate-50">Next</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
