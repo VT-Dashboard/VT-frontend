@@ -536,7 +536,37 @@ const POSPage = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
                 <div>
                   <label className="text-sm text-gray-700">Name</label>
-                  <input value={customName} onChange={e => setCustomName(e.target.value)} className="mt-1 w-full border rounded px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-indigo-200" placeholder="e.g. Cut piece" />
+                  <select
+                    onChange={e => {
+                      const val = e.target.value;
+                      setCustomName(val);
+                      try { document.getElementById('custom-name-input')?.focus(); } catch (e) {}
+                    }}
+                    className="mt-1 w-full border rounded px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                    aria-label="Pick a common name"
+                  >
+                    <option value="">— Select common name —</option>
+                    <option value="Trouser">Trouser</option>
+                    <option value="Shirt">Shirt</option>
+                    <option value="T-Shirt">T-Shirt</option>
+                    <option value="Blouse">Blouse</option>
+                    <option value="Cut piece">Cut piece</option>
+                    <option value="Underwear">Underwear</option>
+                    <option value="Frock">Frock</option>
+                    <option value="Skirt">Skirt</option>
+                    <option value="Jacket">Jacket</option>
+                    <option value="Sarong">Sarong</option>
+                    <option value="Saree">Saree</option>
+                    <option value="item">Other (type below)</option>
+                  </select>
+
+                  <input
+                    id="custom-name-input"
+                    value={customName}
+                    onChange={e => setCustomName(e.target.value)}
+                    className="mt-2 w-full border rounded px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-indigo-200"
+                    placeholder="Type a custom name or pick above"
+                  />
                 </div>
                 <div>
                   <label className="text-sm text-gray-700">Price (Rs)</label>

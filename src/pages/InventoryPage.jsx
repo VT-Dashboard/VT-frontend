@@ -6,6 +6,7 @@ const emptyItem = {
 	name: "",
 	description: "",
 	sku: "",
+	barcode: "",
 	price: "",
 	cost: "",
 	quantity: "",
@@ -321,11 +322,18 @@ const InventoryPage = () => {
 			return (tail + rand).slice(0, 12);
 		};
 		let code = make();
-		const existing = new Set(items.map((i) => i.barcode));
+		const existing = new Set(items.map((i) => String(i.barcode || "")));
 		let attempts = 0;
-		while (existing.has(code) && attempts < 10) {
+		while (existing.has(String(code)) && attempts < 50) {
 			code = make();
 			attempts += 1;
+		}
+		// update preview and form so the UI reflects the generated code immediately
+		try {
+			setPreviewBarcode(code);
+			setForm((f) => ({ ...f, barcode: code }));
+		} catch (e) {
+			// ignore if states not ready
 		}
 		return code;
 	};
@@ -476,7 +484,8 @@ const InventoryPage = () => {
 				}));
 			} else {
 				// create
-				const barcode = generateBarcode();
+				const barcode = (form.barcode && String(form.barcode).trim()) ? form.barcode : generateBarcode();
+				if (form.barcode && String(form.barcode).trim()) setPreviewBarcode(form.barcode);
 				const payload = {
 					...form,
 					price: form.price === "" ? null : Number(form.price || 0),
@@ -534,6 +543,7 @@ const InventoryPage = () => {
 				name: it.name || "",
 				description: it.description || "",
 				sku: it.sku || "",
+				barcode: it.barcode || "",
 				price: (it.price ?? 0).toString(),
 				cost: (it.cost ?? 0).toString(),
 				quantity: (it.quantity ?? 0).toString(),
@@ -681,6 +691,15 @@ const InventoryPage = () => {
 								<label className="text-sm font-medium text-gray-700">SKU</label>
 								<div className="col-span-2">
 									<input name="sku" value={form.sku} onChange={handleChange} className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+								</div>
+							</div>
+							{/* Barcode input: allow generate or scan/paste a barcode */}
+							<div className="grid grid-cols-3 items-center gap-4">
+								<label className="text-sm font-medium text-gray-700">Barcode</label>
+								<div className="col-span-2 flex items-center gap-2">
+									<input name="barcode" value={form.barcode || ""} onChange={handleChange} className="flex-1 rounded-md border border-gray-200 px-3 py-2 text-sm bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+									<button type="button" onClick={() => { const code = generateBarcode(); setPreviewBarcode(code); }} className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md text-sm">Generate</button>
+									<button type="button" onClick={() => { const scanned = window.prompt('Scan or enter barcode:'); if (scanned) { setForm((f) => ({ ...f, barcode: scanned })); setPreviewBarcode(scanned); } }} className="inline-flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded-md text-sm">Scan</button>
 								</div>
 							</div>
 							<div className="grid grid-cols-3 items-center gap-4">
