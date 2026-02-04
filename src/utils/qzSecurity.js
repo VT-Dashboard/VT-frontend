@@ -3,6 +3,10 @@ import qz from "qz-tray";
 const CERT_URL = import.meta.env.VITE_QZ_CERT_URL || "/qz/cert.pem";
 const SIGN_URL = import.meta.env.VITE_QZ_SIGN_URL || "/qz/sign";
 const USE_DEMO_SIGNING = import.meta.env.VITE_QZ_USE_DEMO_SIGNING === "true";
+// When true, skip fetching certificate/signature entirely and resolve null.
+// This mirrors the insecure fallback used by PrintSticker and is intended
+// for simple local or kiosk setups only. DO NOT enable in untrusted production.
+const ALLOW_UNSIGNED = import.meta.env.VITE_QZ_ALLOW_UNSIGNED === "true";
 
 const DEMO_CERT_URL = "https://demo.qz.io/certs/demo.cert";
 const DEMO_SIGN_URL = "https://demo.qz.io/sign?request=";
@@ -25,6 +29,13 @@ export async function setupQZSecurity() {
    * 2) Use qz-tray demo signing ONLY for development
    */
   qz.security.setCertificatePromise((resolve, reject) => {
+    // If explicitly allowed, skip cert fetching and use null (insecure)
+    if (ALLOW_UNSIGNED) {
+      console.warn('QZ security: VITE_QZ_ALLOW_UNSIGNED=true — skipping certificate fetch (insecure).');
+      resolve(null);
+      return;
+    }
+
     const certUrl = USE_DEMO_SIGNING ? DEMO_CERT_URL : CERT_URL;
     // If running on localhost during development, allow insecure local fallback
     const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
@@ -45,6 +56,12 @@ export async function setupQZSecurity() {
   });
 
   qz.security.setSignaturePromise((toSign) => async (resolve, reject) => {
+    // If unsigned is explicitly allowed, resolve null (insecure fallback)
+    if (ALLOW_UNSIGNED) {
+      console.warn('QZ security: VITE_QZ_ALLOW_UNSIGNED=true — skipping signature (insecure).');
+      resolve(null);
+      return;
+    }
     // If running on localhost during development, resolve null (insecure fallback)
     const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
     if (!USE_DEMO_SIGNING && /^(localhost|127\.0\.0\.1|::1)$/.test(hostname)) {
