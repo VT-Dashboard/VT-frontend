@@ -4,10 +4,10 @@ const styles = {
   container: {
     width: '72mm',
     margin: '0 auto',
-    padding: '8px 8px 2px',
+    padding: '8px 8px 4px',
     fontFamily: 'Arial, Helvetica, sans-serif',
-    fontSize: '12px',
-    lineHeight: 1.35,
+    fontSize: '11px',
+    lineHeight: 1.3,
     color: '#000',
   },
   header: {
@@ -15,12 +15,14 @@ const styles = {
     marginBottom: '6px',
   },
   storeName: {
-    fontWeight: 700,
-    fontSize: '14px',
-    letterSpacing: '0.2px',
+    fontWeight: 800,
+    fontSize: '15px',
+    letterSpacing: '0.3px',
   },
   storeMeta: {
     marginTop: '2px',
+    fontSize: '10px',
+    color: '#222',
   },
   row: {
     display: 'flex',
@@ -28,7 +30,7 @@ const styles = {
     alignItems: 'baseline',
   },
   divider: {
-    borderTop: '1px solid #000',
+    borderTop: '1px dashed #444',
     margin: '6px 0',
   },
   items: {
@@ -36,21 +38,25 @@ const styles = {
   },
   itemHeader: {
     display: 'flex',
-    justifyContent: 'space-between',
     gap: '8px',
     fontWeight: 700,
-    marginBottom: '4px',
+    marginBottom: '6px',
+    fontSize: '10px',
   },
   item: {
     display: 'flex',
-    justifyContent: 'space-between',
     gap: '8px',
-    marginBottom: '2px',
+    marginBottom: '4px',
+    fontSize: '10.5px',
   },
   itemName: {
     flex: '1 1 auto',
     minWidth: 0,
     wordBreak: 'break-word',
+  },
+  itemUnit: {
+    width: '48px',
+    textAlign: 'right',
   },
   itemQty: {
     width: '30px',
@@ -61,22 +67,30 @@ const styles = {
     textAlign: 'right',
   },
   totals: {
-    marginTop: '4px',
+    marginTop: '6px',
+    fontSize: '11px',
   },
   totalLine: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    marginBottom: '2px',
+    marginBottom: '3px',
   },
   grandTotal: {
-    fontWeight: 700,
-    marginTop: '4px',
+    fontWeight: 800,
+    marginTop: '6px',
+    fontSize: '13px',
+  },
+  metaSmall: {
+    fontSize: '10px',
+    color: '#333',
   },
   footer: {
     textAlign: 'center',
-    marginTop: '6px',
+    marginTop: '8px',
     marginBottom: '0',
+    fontSize: '10px',
+    color: '#333',
   },
 };
 
@@ -86,6 +100,12 @@ function formatDate(value) {
   return date.toLocaleString();
 }
 
+function formatCurrency(v) {
+  const n = Number(v || 0);
+  if (Number.isNaN(n)) return 'Rs 0.00';
+  return `Rs ${n.toFixed(2)}`;
+}
+
 const Receipt = ({
   items,
   subtotal,
@@ -93,9 +113,12 @@ const Receipt = ({
   discount = 0,
   total,
   paidAt,
-  storeName = 'VT Store',
+  orderNumber = '',
+  paymentMethod = '',
+  cashier = '',
+  storeName = 'VIJAYA TEX',
   storeAddress = 'NO 19, In front of roundabout, Middle Street, Tissamaharama',
-  storePhone = '0777044048',
+  storePhone = '0777044048 / 0761694048',
   footerMessage = 'Thank you for your purchase!',
 }) => (
   <div style={styles.container}>
@@ -103,55 +126,78 @@ const Receipt = ({
       <div style={styles.storeName}>{storeName}</div>
       {(storeAddress || storePhone) ? (
         <div style={styles.storeMeta}>
-          {storeAddress ? <div>Address: {storeAddress}</div> : null}
-          {storePhone ? <div>Phone: {storePhone}</div> : null}
+          {storeAddress ? <div>{storeAddress}</div> : null}
+          {storePhone ? <div>Tel: {storePhone}</div> : null}
         </div>
       ) : null}
-      <div style={styles.row}>
-        <div>{paidAt ? formatDate(paidAt) : ''}</div>
-        <div />
+      <div style={{ ...styles.row, marginTop: 6 }}>
+        <div style={styles.metaSmall}>{paidAt ? formatDate(paidAt) : ''}</div>
+        <div style={styles.metaSmall}>{orderNumber ? `Order: ${orderNumber}` : ''}</div>
       </div>
     </div>
+
     <div style={styles.divider} />
+
     <div style={styles.items}>
       <div style={styles.itemHeader}>
         <div style={styles.itemName}>Item</div>
+        <div style={styles.itemUnit}>Unit</div>
         <div style={styles.itemQty}>Qty</div>
         <div style={styles.itemPrice}>Amount</div>
       </div>
-      {(items || []).map((item, idx) => (
-        <div key={`${item.name || 'item'}-${idx}`} style={styles.item}>
-          <div style={styles.itemName}>{item.name || 'Item'}</div>
-          <div style={styles.itemQty}>{item.qty}</div>
-          <div style={styles.itemPrice}>Rs {(item.price * item.qty).toFixed(2)}</div>
-        </div>
-      ))}
+      {(items || []).map((item, idx) => {
+        const name = item.name || 'Item';
+        const qty = Number(item.qty || item.quantity || 1);
+        const unit = Number(item.price || item.unitPrice || 0);
+        const amount = qty * unit;
+        return (
+          <div key={`${name}-${idx}`} style={styles.item}>
+            <div style={styles.itemName}>{name}</div>
+            <div style={styles.itemUnit}>{formatCurrency(unit)}</div>
+            <div style={styles.itemQty}>{qty}</div>
+            <div style={styles.itemPrice}>{formatCurrency(amount)}</div>
+          </div>
+        );
+      })}
     </div>
+
     <div style={styles.divider} />
+
     <div style={styles.totals}>
       <div style={styles.totalLine}>
-        <div>Subtotal</div>
-        <div>Rs {subtotal.toFixed(2)}</div>
+        <div style={styles.metaSmall}>Subtotal</div>
+        <div style={styles.metaSmall}>{formatCurrency(subtotal)}</div>
       </div>
       {tax ? (
         <div style={styles.totalLine}>
-          <div>Tax</div>
-          <div>Rs {tax.toFixed(2)}</div>
+          <div style={styles.metaSmall}>Tax</div>
+          <div style={styles.metaSmall}>{formatCurrency(tax)}</div>
         </div>
       ) : null}
       {discount ? (
         <div style={styles.totalLine}>
-          <div>Discount</div>
-          <div>-Rs {Math.abs(discount).toFixed(2)}</div>
+          <div style={styles.metaSmall}>Discount</div>
+          <div style={styles.metaSmall}>-{formatCurrency(Math.abs(discount))}</div>
         </div>
       ) : null}
       <div style={{ ...styles.totalLine, ...styles.grandTotal }}>
         <div>Total</div>
-        <div>Rs {total.toFixed(2)}</div>
+        <div>{formatCurrency(total)}</div>
       </div>
+
+      {(paymentMethod || cashier) ? (
+        <div style={{ marginTop: 6 }}>
+          {paymentMethod ? <div style={styles.totalLine}><div style={styles.metaSmall}>Paid By</div><div style={styles.metaSmall}>{paymentMethod}</div></div> : null}
+          {cashier ? <div style={styles.totalLine}><div style={styles.metaSmall}>Cashier</div><div style={styles.metaSmall}>{cashier}</div></div> : null}
+        </div>
+      ) : null}
     </div>
+
     <div style={styles.divider} />
-    <div style={styles.footer}>{footerMessage}</div>
+    <div style={styles.footer}>
+      <div>{footerMessage}</div>
+      <div style={{ fontSize: '9px', marginTop: 6, color: '#666' }}>No returns after 3 days.</div>
+    </div>
   </div>
 );
 
