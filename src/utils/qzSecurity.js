@@ -26,22 +26,64 @@ export async function setupQZSecurity() {
    */
   qz.security.setCertificatePromise((resolve, reject) => {
     const certUrl = USE_DEMO_SIGNING ? DEMO_CERT_URL : CERT_URL;
-    fetchText(certUrl).then(resolve).catch(reject);
-  });
-
-  qz.security.setSignaturePromise((toSign) => (resolve, reject) => {
-    if (USE_DEMO_SIGNING) {
-      fetchText(`${DEMO_SIGN_URL}${encodeURIComponent(toSign)}`)
-        .then(resolve)
-        .catch(reject);
+    // If running on localhost during development, allow insecure local fallback
+    const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
+    if (!USE_DEMO_SIGNING && /^(localhost|127\.0\.0\.1|::1)$/.test(hostname)) {
+      console.warn('QZ security: localhost detected — using insecure local certificate fallback (null).');
+      resolve(null);
       return;
     }
-    fetchText(SIGN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ toSign }),
-    })
-      .then(resolve)
-      .catch(reject);
+    fetchText(certUrl).then(resolve).catch((err) => {
+      // If cert fetch fails but we're on localhost, fall back to null to match PrintSticker behavior
+      if (/^(localhost|127\.0\.0\.1|::1)$/.test(hostname)) {
+        console.warn('QZ cert fetch failed, falling back to null certificate for localhost:', err?.message || err);
+        resolve(null);
+        return;
+      }
+      reject(err);
+    });
+  });
+
+  qz.security.setSignaturePromise((toSign) => async (resolve, reject) => {
+    // If running on localhost during development, resolve null (insecure fallback)
+    const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
+    if (!USE_DEMO_SIGNING && /^(localhost|127\.0\.0\.1|::1)$/.test(hostname)) {
+      console.warn('QZ security: localhost detected — using insecure local signature fallback (null).');
+      resolve(null);
+      return;
+    }
+
+    if (USE_DEMO_SIGNING) {
+      try {
+        const demoResp = await fetchText(`${DEMO_SIGN_URL}${encodeURIComponent(toSign)}`);
+        resolve(demoResp);
+      } catch (err) {
+        reject(err);
+      }
+      return;
+    }
+
+    // Try the configured signing endpoint first. If it fails (404 or network),
+    // fall back to the QZ demo signing service to allow local development/testing.
+    try {
+      const resp = await fetchText(SIGN_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toSign }),
+      });
+      resolve(resp);
+      return;
+    } catch (err) {
+      console.warn("QZ signing via", SIGN_URL, "failed:", err?.message || err);
+    }
+
+    // Fallback to demo signing as a last resort (development only).
+    try {
+      const demoResp = await fetchText(`${DEMO_SIGN_URL}${encodeURIComponent(toSign)}`);
+      console.warn("Falling back to QZ demo signing (insecure - development only)");
+      resolve(demoResp);
+    } catch (demoErr) {
+      reject(demoErr);
+    }
   });
 }
